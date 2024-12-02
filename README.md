@@ -12,6 +12,11 @@ Tweet Refiner is a Streamlit application that helps users refine and improve the
 - Character limit validation (280 characters)
 - Maintains writing style consistency
 
+## Feature Wish List
+
+- [ ] Allow user to manually update the refined tweet before posting
+
+
 ## Prerequisites
 
 - Python 3.9 or higher
@@ -88,17 +93,6 @@ To contribute to the project:
 2. Create a feature branch
 3. Make your changes
 4. Submit a pull request
-
-## Testing
-
-To run the test suite:
-```bash
-poetry run pytest
-```
-
-## License
-
-[MIT License](LICENSE)
 
 ## Acknowledgments
 
