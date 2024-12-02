@@ -1,6 +1,6 @@
 from typing import List, Optional
 import tweepy
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from .config import Config
 from prompt import SYSTEM_MESSAGE, TWEET_PROMPT
@@ -25,45 +25,100 @@ class TweetRefiner:
         )
         return [tweet.text for tweet in tweets.data] if tweets.data else []
 
-    def refine_tweet(self, text: str, style_examples: List[str], additional_instructions: Optional[str] = None) -> str:
+    def refine_tweet(self, text: str, previous_tweets: List[str], additional_instructions: Optional[str] = None) -> str:
         """Refine the input text using the LLM."""
-        prompt = ChatPromptTemplate(
-            [
-                ("system", SYSTEM_MESSAGE),
-                ("human", TWEET_PROMPT),
-                MessagesPlaceholder("additional_instructions")
-            ]
-        )
+        # Create base messages without the placeholder
+        messages = [
+            ("system", SYSTEM_MESSAGE),
+            ("human", TWEET_PROMPT),
+        ]
+        
+        # Add additional instructions as a separate human message if provided
+        if additional_instructions:
+            messages.append(("human", additional_instructions))
+            
+        prompt = ChatPromptTemplate(messages)
 
         chain = prompt | self.llm
 
         formatted_prompt = prompt.format(
             original_tweet=text,
-            previous_tweets=[],
-            additional_instructions=["Additional instructions"],
+            previous_tweets=previous_tweets,
             max_length=self.config.MAX_TWEET_LENGTH  # Use config value
         )
         print("Final Prompt:")
         print(formatted_prompt)
 
+
         response = chain.invoke({
             "original_tweet": text, 
-            "previous_tweets": [], 
-            "additional_instructions": [],
+            "previous_tweets": previous_tweets, 
             "max_length": self.config.MAX_TWEET_LENGTH  # Use config value
         })
 
         return response.content
 
-    def post_tweet(self, text: str) -> bool:
-        """Post the refined tweet to Twitter."""
-        if len(text) > self.config.MAX_TWEET_LENGTH:  # Use config value
-            print(f"Tweet exceeds maximum length of {self.config.MAX_TWEET_LENGTH} characters")
-            return False
+    def _create_thread_chunks(self, text: str) -> List[str]:
+        """Split text into chunks suitable for a thread."""
+        chunks = []
+        words = text.split()
+        current_chunk = []
+        current_length = 0
+        
+        for word in words:
+            thread_suffix_space = len(f" ({len(chunks) + 1} of X)")
+            new_length = current_length + len(word) + (1 if current_chunk else 0)
             
+            if new_length + thread_suffix_space <= self.config.MAX_TWEET_LENGTH:
+                if current_chunk:
+                    current_length += 1
+                current_chunk.append(word)
+                current_length += len(word)
+            else:
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                current_chunk = [word]
+                current_length = len(word)
+        
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+            
+        return chunks
+
+    def post_tweet(self, text: str) -> bool:
+        """
+        Post text to Twitter, automatically handling single tweets and threads.
+        Returns True if successful, False otherwise.
+        """
         try:
-            self.twitter_client.create_tweet(text=text)
+            # Single tweet case
+            if len(text) <= self.config.MAX_TWEET_LENGTH:
+                self.twitter_client.create_tweet(text=text)
+                print(f"Posting single tweet: {text}")
+                return True
+                
+            # Thread case
+            chunks = self._create_thread_chunks(text)
+            
+            for chunk in chunks:
+                print(f"Posting chunk: {chunk}")
+
+            # Post first tweet
+            first_tweet = chunks[0] + f" (1 of {len(chunks)})"
+            response = self.twitter_client.create_tweet(text=first_tweet)
+            previous_tweet_id = response.data['id']
+            
+            # Post replies
+            for i, chunk in enumerate(chunks[1:], 2):
+                tweet_text = chunk + f" ({i} of {len(chunks)})"
+                response = self.twitter_client.create_tweet(
+                    text=tweet_text,
+                    in_reply_to_tweet_id=previous_tweet_id
+                )
+                previous_tweet_id = response.data['id']
+                
             return True
+            
         except Exception as e:
-            print(f"Error posting tweet: {str(e)}")
+            print(f"Error posting tweet/thread: {str(e)}")
             return False

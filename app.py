@@ -84,7 +84,7 @@ def main():
             
             with col2:
                 if st.button("Approve and Post", key=f"approve_{i}"):
-                    print("approving and posting")
+                    refiner.post_tweet(result)
                     # Reset the state after approval
                     st.session_state["refined_results"] = []
                     st.session_state["show_refine_button"] = True
