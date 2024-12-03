@@ -26,6 +26,12 @@ def initialize_clients():
     
     return TweetRefiner(twitter_client, llm, config)
 
+def on_text_change(key: str):
+    """Callback for text area changes"""
+    if key in st.session_state:
+        current_text = st.session_state[key]
+        st.session_state[f"{key}_count"] = len(current_text)
+
 def main():
     st.title("Tweet Refiner")
     
@@ -60,7 +66,24 @@ def main():
     # Display all refined results
     for i, result in enumerate(st.session_state["refined_results"]):
         st.subheader(f"Refined Tweet {i+1}:")
-        st.write(result)
+        
+        # Initialize character count in session state if not exists
+        count_key = f"refined_tweet_{i}_count"
+        if count_key not in st.session_state:
+            st.session_state[count_key] = len(result)
+        
+        # Use text_area for editable refined tweets with callback
+        edited_text = st.text_area(
+            "Edit refined tweet:",
+            value=result,
+            height=100,
+            key=f"refined_tweet_{i}",
+            on_change=on_text_change,
+            args=(f"refined_tweet_{i}",)
+        )
+        
+        # Character counter using session state
+        st.caption(f"Character count: {st.session_state[count_key]}/280")
         
         # Show additional refinement options only for the latest result
         if i == len(st.session_state["refined_results"]) - 1:
@@ -75,7 +98,7 @@ def main():
                 if st.button("Refine Again", key=f"refine_again_{i}"):
                     with st.spinner('Refining your tweet...'):
                         refined_text = refiner.refine_tweet(
-                            result,
+                            edited_text,  # Use the edited text for refinement
                             st.session_state["previous_tweets"],
                             additional_instructions
                         )
@@ -84,11 +107,15 @@ def main():
             
             with col2:
                 if st.button("Approve and Post", key=f"approve_{i}"):
-                    refiner.post_tweet(result)
-                    # Reset the state after approval
-                    st.session_state["refined_results"] = []
-                    st.session_state["show_refine_button"] = True
-                    st.rerun()
+                    with st.spinner('Posting tweet...'):
+                        if refiner.post_tweet(edited_text):  # Post the edited text
+                            st.success("Tweet posted successfully!")
+                            # Reset the state after approval
+                            st.session_state["refined_results"] = []
+                            st.session_state["show_refine_button"] = True
+                            st.rerun()
+                        else:
+                            st.error("Failed to post tweet. Please try again.")
 
 if __name__ == "__main__":
     main() 
