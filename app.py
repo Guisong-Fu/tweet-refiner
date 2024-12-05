@@ -75,7 +75,7 @@ def main():
         # Use text_area for editable refined tweets with callback
         edited_text = st.text_area(
             "Edit refined tweet:",
-            value=result,
+            value=result.strip(),
             height=100,
             key=f"refined_tweet_{i}",
             on_change=on_text_change,
